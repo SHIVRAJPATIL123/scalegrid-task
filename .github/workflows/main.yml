@@ -1,0 +1,62 @@
+
+
+name: CI
+
+on:
+
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+
+  workflow_dispatch:
+
+jobs:
+  CURD-cluster:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_TOKEN }}
+      - name: init terraform
+        run: cd terraform && terraform init
+      - name: plan cluster
+        run: cd terraform && terraform plan -var "do_token=${{ secrets.DO_TOKEN }}"
+      - name: create cluster
+        run: cd terraform && terraform apply -auto-approve  -var "do_token=${{ secrets.DO_TOKEN }} "
+      - name: auth cluster1
+        run: doctl kubernetes cluster kubeconfig save first
+      - name: test cluster1
+        run: kubectl get all
+      - name: warmup-cluster1
+        run: sleep 60
+      - name: deploy rediscluster in cluster 1
+        run: cd terraform/helm/redis-cluster1/ && terraform init && terraform apply -auto-approve 
+      - name: warmup-redis
+        run: sleep 30
+      - name: testing redis cluster1
+        run:  kubectl exec -it redis-redis-cluster-0 -- redis-cli auth `kubectl get secret redis-redis-cluster  -o jsonpath='{.data.redis-password}' | base64 --decode`
+      # - name: destroy redis cluster1
+      #   run: cd terraform/helm/redis-cluster1/ && terraform destroy -auto-approve 
+      - name: auth cluster2
+        run: doctl kubernetes cluster kubeconfig save second
+      - name: test cluster2
+        run: kubectl get all
+      - name: deploy rediscluster in cluster 2
+        run: cd terraform/helm/redis-cluster2/ && terraform init && terraform apply -auto-approve 
+      - name: warmup-redis
+        run: sleep 30
+      - name: testing redis cluster2
+        run:  kubectl exec -it redis-redis-cluster-0 -- redis-cli auth `kubectl get secret redis-redis-cluster  -o jsonpath='{.data.redis-password}' | base64 --decode`
+      # - name: destroy redis cluster2
+      #   run: cd terraform/helm/redis-cluster2/ && terraform destroy -auto-approve 
+      # - name: terraform destroy
+      #   run: cd terraform && terraform destroy -auto-approve -var "do_token=${{ secrets.DO_TOKEN }} " 
+      # - name: cleanup
+      #   run: doctl compute volume list --format ID --no-header | xargs -I {} doctl compute volume delete -f {} ||true
+
+
+
